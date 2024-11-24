@@ -13,7 +13,7 @@ link_bandwidth = 1000  # Mbps (1 Gbps)
 nodes = []
 for i in range(node_count):
     node = request.XenVM("node" + str(i))
-    node.disk_image = node_image
+    # node.disk_image = node_image
     nodes.append(node)
 
 # Connect nodes in a ring
