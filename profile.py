@@ -1,103 +1,105 @@
+"""Physical topology with correct routing configurations for leader election."""
+
+# Import the Portal object.
 import geni.portal as portal
-import geni.rspec.pg as RSpec
+# Import the ProtoGENI library.
+import geni.rspec.pg as pg
+# Import the Emulab specific extensions.
+import geni.rspec.emulab as emulab
 
-# Create a request object to define the experiment
-request = RSpec.Request()
+# Create a portal object.
+pc = portal.Context()
 
-# Parameters
-node_count = 5  # Total nodes (4 in a ring + 1 additional)
-node_image = "urn:publicid:IDN+emulab.net+image+UBUNTU22-64-STD"  # Ubuntu 22 image
-link_bandwidth = 1000  # Mbps (1 Gbps)
+# Create a Request object to start building the RSpec.
+request = pc.makeRequestRSpec()
 
-# Create nodes and links
-nodes = []
-for i in range(node_count):
-    node = request.XenVM("node" + str(i))
-    # node.disk_image = node_image
-    nodes.append(node)
+# Node node-0
+node_0 = request.RawPC('node-0')
+iface0 = node_0.addInterface('interface-13', pg.IPv4Address('10.0.5.1','255.255.255.0'))
+iface1 = node_0.addInterface('interface-15', pg.IPv4Address('10.0.4.2','255.255.255.0'))
 
-# Track interface counts for each node to avoid duplicates
-interface_counts = {"node" + str(i): 0 for i in range(node_count)}
+# Add routing configuration to node-0
+node_0.addService(pg.Execute(shell="bash", command="""
+sudo sysctl -w net.ipv4.ip_forward=1
+sudo ip route add 10.0.2.0/24 via 10.0.4.1
+sudo ip route add 10.0.3.0/24 via 10.0.4.3
+"""))
 
-# Function to generate a unique interface name for a node
-def get_next_interface_name(node_name):
-    interface_counts[node_name] += 1
-    return "eth" + str(interface_counts[node_name])
+# Node node-2
+node_2 = request.RawPC('node-2')
+iface2 = node_2.addInterface('interface-19', pg.IPv4Address('10.0.2.2','255.255.255.0'))
+iface3 = node_2.addInterface('interface-20', pg.IPv4Address('10.0.3.1','255.255.255.0'))
 
-# Connect nodes in a ring
-for i in range(4):
-    link = request.Link("link_" + str(i) + "_" + str((i + 1) % 4))
-    link.bandwidth = link_bandwidth
-    link.addInterface(nodes[i].addInterface(get_next_interface_name("node" + str(i))))
-    link.addInterface(nodes[(i + 1) % 4].addInterface(get_next_interface_name("node" + str((i + 1) % 4))))
+# Add routing configuration to node-2
+node_2.addService(pg.Execute(shell="bash", command="""
+sudo ip route add 10.0.4.0/24 via 10.0.2.1
+sudo ip route add 10.0.5.0/24 via 10.0.2.1
+"""))
 
-# Add the additional node to the ring node 0
-extra_link = request.Link("link_extra")
-extra_link.bandwidth = link_bandwidth
-extra_link.addInterface(nodes[0].addInterface(get_next_interface_name("node0")))
-extra_link.addInterface(nodes[4].addInterface(get_next_interface_name("node4")))
+# Node node-1
+node_1 = request.RawPC('node-1')
+iface4 = node_1.addInterface('interface-16', pg.IPv4Address('10.0.4.1','255.255.255.0'))
+iface5 = node_1.addInterface('interface-18', pg.IPv4Address('10.0.2.1','255.255.255.0'))
 
-# IP and routing setup script
-routing_script = """
-#!/bin/bash
+# Add routing configuration to node-1
+node_1.addService(pg.Execute(shell="bash", command="""
+sudo sysctl -w net.ipv4.ip_forward=1
+sudo ip route add 10.0.3.0/24 via 10.0.2.2
+sudo ip route add 10.0.5.0/24 via 10.0.4.2
+"""))
 
-# IP and routing configuration for the nodes
-case $(hostname) in
-    node0)
-        ip addr add 10.0.1.1/24 dev eth1
-        ip addr add 10.0.2.1/24 dev eth2
-        ip addr add 10.0.5.1/24 dev eth3
-        ip link set eth1 up
-        ip link set eth2 up
-        ip link set eth3 up
-        ip route add 10.0.3.0/24 via 10.0.2.2
-        ip route add 10.0.4.0/24 via 10.0.1.2
-        ip route add 10.0.6.0/24 via 10.0.5.2
-        ;;
-    node1)
-        ip addr add 10.0.1.2/24 dev eth1
-        ip addr add 10.0.3.1/24 dev eth2
-        ip link set eth1 up
-        ip link set eth2 up
-        ip route add 10.0.4.0/24 via 10.0.3.2
-        ip route add 10.0.2.0/24 via 10.0.1.1
-        ip route add 10.0.5.0/24 via 10.0.1.1
-        ip route add 10.0.6.0/24 via 10.0.1.1
-        ;;
-    node2)
-        ip addr add 10.0.3.2/24 dev eth1
-        ip addr add 10.0.4.1/24 dev eth2
-        ip link set eth1 up
-        ip link set eth2 up
-        ip route add 10.0.1.0/24 via 10.0.3.1
-        ip route add 10.0.2.0/24 via 10.0.3.1
-        ip route add 10.0.5.0/24 via 10.0.3.1
-        ip route add 10.0.6.0/24 via 10.0.3.1
-        ;;
-    node3)
-        ip addr add 10.0.4.2/24 dev eth1
-        ip addr add 10.0.2.2/24 dev eth2
-        ip link set eth1 up
-        ip link set eth2 up
-        ip route add 10.0.1.0/24 via 10.0.4.1
-        ip route add 10.0.3.0/24 via 10.0.4.1
-        ip route add 10.0.5.0/24 via 10.0.4.1
-        ip route add 10.0.6.0/24 via 10.0.4.1
-        ;;
-    node4)
-        ip addr add 10.0.5.2/24 dev eth1
-        ip link set eth1 up
-        ip route add 10.0.1.0/24 via 10.0.5.1
-        ip route add 10.0.2.0/24 via 10.0.5.1
-        ip route add 10.0.3.0/24 via 10.0.5.1
-        ip route add 10.0.4.0/24 via 10.0.5.1
-        ;;
-esac
-"""
+# Node node-3
+node_3 = request.RawPC('node-3')
+iface6 = node_3.addInterface('interface-17', pg.IPv4Address('10.0.4.3','255.255.255.0'))
+iface7 = node_3.addInterface('interface-21', pg.IPv4Address('10.0.3.2','255.255.255.0'))
 
-# Add the routing script to each node
-for node in nodes:
-    node.addService(RSpec.Execute(shell="bash", command=routing_script))
+# Add routing configuration to node-3
+node_3.addService(pg.Execute(shell="bash", command="""
+sudo sysctl -w net.ipv4.ip_forward=1
+sudo ip route add 10.0.2.0/24 via 10.0.3.1
+sudo ip route add 10.0.5.0/24 via 10.0.4.2
+"""))
 
-# Generate the RSpec
-portal.context.printRequestRSpec(request)
+# Node node-4
+node_4 = request.RawPC('node-4')
+iface8 = node_4.addInterface('interface-14', pg.IPv4Address('10.0.5.2','255.255.255.0'))
+
+# Add routing configuration to node-4
+node_4.addService(pg.Execute(shell="bash", command="""
+sudo ip route add 10.0.2.0/24 via 10.0.5.1
+sudo ip route add 10.0.3.0/24 via 10.0.5.1
+sudo ip route add 10.0.4.0/24 via 10.0.5.1
+"""))
+
+# Link link-5
+link_5 = request.Link('link-5')
+iface0.bandwidth = 1000000
+link_5.addInterface(iface0)
+iface8.bandwidth = 1000000
+link_5.addInterface(iface8)
+
+# Link link-6
+link_6 = request.Link('link-6')
+iface1.bandwidth = 1000000
+link_6.addInterface(iface1)
+iface4.bandwidth = 1000000
+link_6.addInterface(iface4)
+iface6.bandwidth = 1000000
+link_6.addInterface(iface6)
+
+# Link link-7
+link_7 = request.Link('link-7')
+iface5.bandwidth = 1000000
+link_7.addInterface(iface5)
+iface2.bandwidth = 1000000
+link_7.addInterface(iface2)
+
+# Link link-8
+link_8 = request.Link('link-8')
+iface3.bandwidth = 1000000
+link_8.addInterface(iface3)
+iface7.bandwidth = 1000000
+link_8.addInterface(iface7)
+
+# Print the generated RSpec
+pc.printRequestRSpec(request)
